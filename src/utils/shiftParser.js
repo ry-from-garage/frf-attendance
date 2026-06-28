@@ -22,7 +22,6 @@ export function parseShiftExcel(buffer) {
 }
 
 function extractShiftData(rows) {
-  const SLOTS_PER_DAY = 24
   const DAYS = 4
 
   let headerRow = -1
@@ -55,13 +54,44 @@ function extractShiftData(rows) {
 
   if (headerRow === -1) throw new Error('ヘッダー行が見つかりません')
 
+  const dayStartCols = []
   for (let c = 0; c < rows[headerRow].length; c++) {
     const v = rows[headerRow][c]
-    if (typeof v === 'string' && v.includes('Day1')) {
-      slotStartCol = c
-      break
+    if (typeof v === 'string' && /Day\d/.test(v)) {
+      dayStartCols.push(c)
     }
   }
+
+  if (dayStartCols.length === 0) throw new Error('Day列が見つかりません')
+  slotStartCol = dayStartCols[0]
+
+  let slotsPerDay
+  if (dayStartCols.length >= 2) {
+    slotsPerDay = dayStartCols[1] - dayStartCols[0]
+  } else {
+    let hourRow = -1
+    for (let r = headerRow + 1; r < headerRow + 4; r++) {
+      if (r >= rows.length) break
+      const v = rows[r]?.[slotStartCol]
+      if (v !== null && v !== undefined && !isNaN(Number(v))) {
+        hourRow = r
+        break
+      }
+    }
+    if (hourRow > -1) {
+      let count = 0
+      for (let c = slotStartCol; c < rows[hourRow].length; c++) {
+        const v = rows[hourRow][c]
+        if (v !== null && v !== undefined && !isNaN(Number(v))) count++
+        else break
+      }
+      slotsPerDay = Math.round(count / DAYS)
+    } else {
+      slotsPerDay = 24
+    }
+  }
+
+  const is2h = slotsPerDay <= 12
 
   let hourRow = -1
   for (let r = headerRow + 1; r < headerRow + 4; r++) {
@@ -86,11 +116,16 @@ function extractShiftData(rows) {
 
     for (let d = 0; d < DAYS; d++) {
       const daySlots = []
-      for (let s = 0; s < SLOTS_PER_DAY; s++) {
-        const col = slotStartCol + d * SLOTS_PER_DAY + s
+      for (let s = 0; s < slotsPerDay; s++) {
+        const col = slotStartCol + d * slotsPerDay + s
         const v = rows[r]?.[col]
         if (v === '●' || v === '○' || v === 1 || v === true) {
-          daySlots.push(s)
+          if (is2h) {
+            daySlots.push(s * 2)
+            daySlots.push(s * 2 + 1)
+          } else {
+            daySlots.push(s)
+          }
         }
       }
       shifts[d] = daySlots
