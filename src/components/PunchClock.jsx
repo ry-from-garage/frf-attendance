@@ -55,7 +55,7 @@ export default function PunchClock({ staffList }) {
   }
 
   return (
-    <div className="pb-32">
+    <div className="pb-40">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-lg font-bold text-slate-800">スタッフ選択</h2>
         <button
@@ -106,7 +106,8 @@ export default function PunchClock({ staffList }) {
         })}
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-4 flex gap-3 max-w-lg mx-auto">
+      {/* bottom-14 = タブバーの高さ分上に配置 */}
+      <div className="fixed bottom-14 left-0 right-0 bg-white border-t border-slate-200 p-3 flex gap-3 max-w-lg mx-auto z-40">
         <button
           onClick={() => punch('start')}
           disabled={selected.size === 0}
@@ -126,7 +127,7 @@ export default function PunchClock({ staffList }) {
       </div>
 
       {toast && (
-        <div className="fixed top-4 left-4 right-4 max-w-lg mx-auto bg-slate-800 text-white text-sm text-center py-3 px-4 rounded-xl shadow-lg z-50 animate-fade-in">
+        <div className="fixed top-14 left-4 right-4 max-w-lg mx-auto bg-slate-800 text-white text-sm text-center py-3 px-4 rounded-xl shadow-lg z-50 animate-fade-in">
           {toast}
         </div>
       )}

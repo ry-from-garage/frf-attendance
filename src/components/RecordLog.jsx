@@ -1,35 +1,107 @@
 import { useState } from 'react'
 import { load, save } from '../utils/storage'
+import { DAY_LABELS, HOUR_LABELS } from '../utils/shiftParser'
 
 export default function RecordLog() {
   const [records, setRecords] = useState(() => load('records', []))
+  const [editIdx, setEditIdx] = useState(null)
+  const [editTime, setEditTime] = useState('')
 
   const grouped = {}
   for (const r of records) {
     if (!grouped[r.name]) grouped[r.name] = []
-    grouped[r.name].push(r)
+    grouped[r.name].push({ ...r, _idx: records.indexOf(r) })
   }
 
-  const exportCSV = () => {
-    const header = '名前,種別,時刻\n'
+  const updateRecords = (next) => {
+    setRecords(next)
+    save('records', next)
+  }
+
+  const startEdit = (idx) => {
+    const r = records[idx]
+    const d = new Date(r.ts)
+    const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    setEditIdx(idx)
+    setEditTime(val)
+  }
+
+  const saveEdit = () => {
+    if (editIdx === null) return
+    const d = new Date(editTime)
+    if (isNaN(d.getTime())) return
+    const next = [...records]
+    next[editIdx] = {
+      ...next[editIdx],
+      ts: d.toISOString(),
+      timeStr: `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`,
+    }
+    updateRecords(next)
+    setEditIdx(null)
+  }
+
+  const toggleType = (idx) => {
+    const next = [...records]
+    next[idx] = { ...next[idx], type: next[idx].type === 'start' ? 'end' : 'start' }
+    updateRecords(next)
+  }
+
+  const deleteRecord = (idx) => {
+    if (!window.confirm('この記録を削除しますか？')) return
+    const next = records.filter((_, i) => i !== idx)
+    updateRecords(next)
+    setEditIdx(null)
+  }
+
+  const exportPunchCSV = () => {
+    const header = '名前,種別,日時\n'
     const rows = records.map((r) => {
       const label = r.type === 'start' ? '開始' : '完了'
-      return `${r.name},${label},${r.ts}`
+      return `${r.name},${label},${formatTime(r.ts)}`
     })
-    const csv = header + rows.join('\n')
+    downloadCSV(header + rows.join('\n'), `打刻記録_${todayStr()}.csv`)
+  }
+
+  const exportAllCSV = () => {
+    const staffList = load('staff', [])
+    let csv = ''
+
+    csv += '【打刻記録】\n'
+    csv += '名前,種別,日時\n'
+    for (const r of records) {
+      csv += `${r.name},${r.type === 'start' ? '開始' : '完了'},${formatTime(r.ts)}\n`
+    }
+
+    csv += '\n【シフト予定】\n'
+    csv += '名前,役割,' + DAY_LABELS.join(',') + '\n'
+    for (const s of staffList) {
+      const role = s.role === 'leader' ? 'L' : s.role === 'pt' ? 'PT' : ''
+      const days = [0, 1, 2, 3].map((d) => {
+        const slots = s.shifts[d] || []
+        if (slots.length === 0) return '-'
+        return slots.map((i) => HOUR_LABELS[i]).join(' ')
+      })
+      csv += `${s.name},${role},${days.join(',')}\n`
+    }
+
+    downloadCSV(csv, `全データ_${todayStr()}.csv`)
+  }
+
+  const downloadCSV = (csv, filename) => {
     const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `勤怠記録_${new Date().toISOString().slice(0, 10)}.csv`
+    a.download = filename
     a.click()
     URL.revokeObjectURL(url)
   }
 
+  const todayStr = () => new Date().toISOString().slice(0, 10)
+
   const clearRecords = () => {
     if (window.confirm('全ての打刻記録を削除しますか？')) {
-      save('records', [])
-      setRecords([])
+      updateRecords([])
     }
   }
 
@@ -44,11 +116,17 @@ export default function RecordLog() {
         <h2 className="text-lg font-bold text-slate-800">打刻履歴</h2>
         <div className="flex gap-2">
           <button
-            onClick={exportCSV}
+            onClick={exportAllCSV}
+            className="text-sm text-blue-600 font-medium px-3 py-1 rounded-lg active:bg-blue-50"
+          >
+            全CSV
+          </button>
+          <button
+            onClick={exportPunchCSV}
             disabled={records.length === 0}
             className="text-sm text-blue-600 font-medium px-3 py-1 rounded-lg active:bg-blue-50 disabled:text-slate-400"
           >
-            CSV出力
+            打刻CSV
           </button>
           <button
             onClick={clearRecords}
@@ -67,17 +145,55 @@ export default function RecordLog() {
           {Object.entries(grouped).map(([name, recs]) => (
             <div key={name} className="bg-white rounded-xl border border-slate-200 p-3">
               <div className="font-medium text-sm mb-2">{name}</div>
-              <div className="space-y-1">
-                {recs.map((r, i) => (
-                  <div key={i} className="flex items-center gap-2 text-sm">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                      r.type === 'start'
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-red-100 text-red-600'
-                    }`}>
-                      {r.type === 'start' ? '開始' : '完了'}
-                    </span>
-                    <span className="text-slate-600">{formatTime(r.ts)}</span>
+              <div className="space-y-1.5">
+                {recs.map((r) => (
+                  <div key={r._idx}>
+                    <div className="flex items-center gap-2 text-sm">
+                      <button
+                        onClick={() => toggleType(r._idx)}
+                        className={`px-2 py-0.5 rounded text-xs font-medium ${
+                          r.type === 'start'
+                            ? 'bg-green-100 text-green-700 active:bg-green-200'
+                            : 'bg-red-100 text-red-600 active:bg-red-200'
+                        }`}
+                      >
+                        {r.type === 'start' ? '開始' : '完了'}
+                      </button>
+                      <button
+                        onClick={() => startEdit(r._idx)}
+                        className="text-slate-600 active:text-blue-600"
+                      >
+                        {formatTime(r.ts)}
+                      </button>
+                      <button
+                        onClick={() => deleteRecord(r._idx)}
+                        className="ml-auto text-slate-400 active:text-red-500 px-1"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    {editIdx === r._idx && (
+                      <div className="flex items-center gap-2 mt-1.5 ml-1">
+                        <input
+                          type="datetime-local"
+                          value={editTime}
+                          onChange={(e) => setEditTime(e.target.value)}
+                          className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm flex-1"
+                        />
+                        <button
+                          onClick={saveEdit}
+                          className="text-sm text-white bg-blue-600 px-3 py-1.5 rounded-lg active:bg-blue-700"
+                        >
+                          保存
+                        </button>
+                        <button
+                          onClick={() => setEditIdx(null)}
+                          className="text-sm text-slate-500 px-2 py-1.5"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
