@@ -1,56 +1,71 @@
-import { useState } from 'react'
-import { load, save } from '../utils/storage'
+import { useState, useEffect } from 'react'
+import { loadRecords, updateRecord, deleteRecord, clearAllRecords } from '../utils/db'
 import { DAY_LABELS, HOUR_LABELS } from '../utils/shiftParser'
 
-export default function RecordLog() {
-  const [records, setRecords] = useState(() => load('records', []))
-  const [editIdx, setEditIdx] = useState(null)
+export default function RecordLog({ staffList }) {
+  const [records, setRecords] = useState([])
+  const [editId, setEditId] = useState(null)
   const [editTime, setEditTime] = useState('')
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    loadRecords()
+      .then(setRecords)
+      .catch((e) => console.error('records load error:', e))
+      .finally(() => setLoading(false))
+  }, [])
 
   const grouped = {}
   for (const r of records) {
     if (!grouped[r.name]) grouped[r.name] = []
-    grouped[r.name].push({ ...r, _idx: records.indexOf(r) })
+    grouped[r.name].push(r)
   }
 
-  const updateRecords = (next) => {
-    setRecords(next)
-    save('records', next)
-  }
-
-  const startEdit = (idx) => {
-    const r = records[idx]
+  const startEdit = (r) => {
     const d = new Date(r.ts)
     const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-    setEditIdx(idx)
+    setEditId(r.id)
     setEditTime(val)
   }
 
-  const saveEdit = () => {
-    if (editIdx === null) return
+  const saveEdit = async () => {
+    if (editId === null) return
     const d = new Date(editTime)
     if (isNaN(d.getTime())) return
-    const next = [...records]
-    next[editIdx] = {
-      ...next[editIdx],
-      ts: d.toISOString(),
-      timeStr: `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`,
+    const ts = d.toISOString()
+    const time_str = `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
+    try {
+      await updateRecord(editId, { ts, time_str })
+      setRecords((prev) =>
+        prev.map((r) => (r.id === editId ? { ...r, ts, time_str } : r))
+      )
+      setEditId(null)
+    } catch (e) {
+      console.error('update error:', e)
     }
-    updateRecords(next)
-    setEditIdx(null)
   }
 
-  const toggleType = (idx) => {
-    const next = [...records]
-    next[idx] = { ...next[idx], type: next[idx].type === 'start' ? 'end' : 'start' }
-    updateRecords(next)
+  const toggleType = async (r) => {
+    const newType = r.type === 'start' ? 'end' : 'start'
+    try {
+      await updateRecord(r.id, { type: newType })
+      setRecords((prev) =>
+        prev.map((rec) => (rec.id === r.id ? { ...rec, type: newType } : rec))
+      )
+    } catch (e) {
+      console.error('toggle error:', e)
+    }
   }
 
-  const deleteRecord = (idx) => {
+  const handleDelete = async (r) => {
     if (!window.confirm('この記録を削除しますか？')) return
-    const next = records.filter((_, i) => i !== idx)
-    updateRecords(next)
-    setEditIdx(null)
+    try {
+      await deleteRecord(r.id)
+      setRecords((prev) => prev.filter((rec) => rec.id !== r.id))
+      setEditId(null)
+    } catch (e) {
+      console.error('delete error:', e)
+    }
   }
 
   const exportPunchCSV = () => {
@@ -63,18 +78,15 @@ export default function RecordLog() {
   }
 
   const exportAllCSV = () => {
-    const staffList = load('staff', [])
     let csv = ''
-
     csv += '【打刻記録】\n'
     csv += '名前,種別,日時\n'
     for (const r of records) {
       csv += `${r.name},${r.type === 'start' ? '開始' : '完了'},${formatTime(r.ts)}\n`
     }
-
     csv += '\n【シフト予定】\n'
     csv += '名前,役割,' + DAY_LABELS.join(',') + '\n'
-    for (const s of staffList) {
+    for (const s of (staffList || [])) {
       const role = s.role === 'leader' ? 'L' : s.role === 'pt' ? 'PT' : ''
       const days = [0, 1, 2, 3].map((d) => {
         const slots = s.shifts[d] || []
@@ -83,7 +95,6 @@ export default function RecordLog() {
       })
       csv += `${s.name},${role},${days.join(',')}\n`
     }
-
     downloadCSV(csv, `全データ_${todayStr()}.csv`)
   }
 
@@ -99,9 +110,13 @@ export default function RecordLog() {
 
   const todayStr = () => new Date().toISOString().slice(0, 10)
 
-  const clearRecords = () => {
-    if (window.confirm('全ての打刻記録を削除しますか？')) {
-      updateRecords([])
+  const handleClearAll = async () => {
+    if (!window.confirm('全ての打刻記録を削除しますか？')) return
+    try {
+      await clearAllRecords()
+      setRecords([])
+    } catch (e) {
+      console.error('clear error:', e)
     }
   }
 
@@ -109,6 +124,8 @@ export default function RecordLog() {
     const d = new Date(ts)
     return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
   }
+
+  if (loading) return <div className="text-center text-slate-400 py-12">読込中...</div>
 
   return (
     <div className="pb-20">
@@ -129,7 +146,7 @@ export default function RecordLog() {
             打刻CSV
           </button>
           <button
-            onClick={clearRecords}
+            onClick={handleClearAll}
             disabled={records.length === 0}
             className="text-sm text-red-500 font-medium px-3 py-1 rounded-lg active:bg-red-50 disabled:text-slate-400"
           >
@@ -147,10 +164,10 @@ export default function RecordLog() {
               <div className="font-medium text-sm mb-2">{name}</div>
               <div className="space-y-1.5">
                 {recs.map((r) => (
-                  <div key={r._idx}>
+                  <div key={r.id}>
                     <div className="flex items-center gap-2 text-sm">
                       <button
-                        onClick={() => toggleType(r._idx)}
+                        onClick={() => toggleType(r)}
                         className={`px-2 py-0.5 rounded text-xs font-medium ${
                           r.type === 'start'
                             ? 'bg-green-100 text-green-700 active:bg-green-200'
@@ -160,19 +177,19 @@ export default function RecordLog() {
                         {r.type === 'start' ? '開始' : '完了'}
                       </button>
                       <button
-                        onClick={() => startEdit(r._idx)}
+                        onClick={() => startEdit(r)}
                         className="text-slate-600 active:text-blue-600"
                       >
                         {formatTime(r.ts)}
                       </button>
                       <button
-                        onClick={() => deleteRecord(r._idx)}
+                        onClick={() => handleDelete(r)}
                         className="ml-auto text-slate-400 active:text-red-500 px-1"
                       >
                         ✕
                       </button>
                     </div>
-                    {editIdx === r._idx && (
+                    {editId === r.id && (
                       <div className="flex items-center gap-2 mt-1.5 ml-1">
                         <input
                           type="datetime-local"
@@ -187,7 +204,7 @@ export default function RecordLog() {
                           保存
                         </button>
                         <button
-                          onClick={() => setEditIdx(null)}
+                          onClick={() => setEditId(null)}
                           className="text-sm text-slate-500 px-2 py-1.5"
                         >
                           ✕

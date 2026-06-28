@@ -1,14 +1,15 @@
 import { useState } from 'react'
 import { HOUR_LABELS, DAY_LABELS } from '../utils/shiftParser'
-import { save } from '../utils/storage'
+import { updateStaffShifts } from '../utils/db'
 
 export default function ShiftView({ staffList, onUpdate }) {
   const [selectedDay, setSelectedDay] = useState(0)
   const [editing, setEditing] = useState(null)
 
-  const toggleSlot = (staffIdx, slot) => {
-    const updated = structuredClone(staffList)
-    const slots = updated[staffIdx].shifts[selectedDay]
+  const toggleSlot = async (staffIdx, slot) => {
+    const staff = staffList[staffIdx]
+    const shifts = structuredClone(staff.shifts)
+    const slots = shifts[selectedDay] || []
     const idx = slots.indexOf(slot)
     if (idx >= 0) {
       slots.splice(idx, 1)
@@ -16,8 +17,16 @@ export default function ShiftView({ staffList, onUpdate }) {
       slots.push(slot)
       slots.sort((a, b) => a - b)
     }
+    shifts[selectedDay] = slots
+
+    const updated = staffList.map((s, i) => (i === staffIdx ? { ...s, shifts } : s))
     onUpdate(updated)
-    save('staff', updated)
+
+    try {
+      await updateStaffShifts(staff.id, shifts)
+    } catch (e) {
+      console.error('shift save error:', e)
+    }
   }
 
   const totalHours = (staff, day) => staff.shifts[day]?.length || 0
@@ -47,7 +56,7 @@ export default function ShiftView({ staffList, onUpdate }) {
           const isEditing = editing === si
 
           return (
-            <div key={s.name} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div key={s.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
               <button
                 onClick={() => setEditing(isEditing ? null : si)}
                 className="w-full flex items-center justify-between p-3 active:bg-slate-50 text-left"

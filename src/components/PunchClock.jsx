@@ -1,10 +1,16 @@
-import { useState } from 'react'
-import { save, load } from '../utils/storage'
+import { useState, useEffect } from 'react'
+import { loadRecords, insertRecords } from '../utils/db'
 
 export default function PunchClock({ staffList }) {
   const [selected, setSelected] = useState(new Set())
-  const [records, setRecords] = useState(() => load('records', []))
+  const [records, setRecords] = useState([])
   const [toast, setToast] = useState(null)
+
+  useEffect(() => {
+    loadRecords()
+      .then(setRecords)
+      .catch((e) => console.error('records load error:', e))
+  }, [])
 
   const toggle = (name) => {
     setSelected((prev) => {
@@ -22,19 +28,22 @@ export default function PunchClock({ staffList }) {
     }
   }
 
-  const punch = (type) => {
+  const punch = async (type) => {
     if (selected.size === 0) return
     const now = new Date()
     const ts = now.toISOString()
     const timeStr = `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`
     const names = [...selected]
     const newRecords = names.map((name) => ({ name, type, ts, timeStr }))
-    const updated = [...records, ...newRecords]
-    setRecords(updated)
-    save('records', updated)
-    setSelected(new Set())
-    const label = type === 'start' ? '稼働開始' : '稼働完了'
-    showToast(`${names.length}名の${label}を記録しました (${timeStr})`)
+    try {
+      const saved = await insertRecords(newRecords)
+      setRecords((prev) => [...prev, ...saved])
+      setSelected(new Set())
+      const label = type === 'start' ? '稼働開始' : '稼働完了'
+      showToast(`${names.length}名の${label}を記録しました (${timeStr})`)
+    } catch (e) {
+      showToast('保存エラー: ' + e.message)
+    }
   }
 
   const showToast = (msg) => {
@@ -53,6 +62,8 @@ export default function PunchClock({ staffList }) {
     const recs = records.filter((r) => r.name === name)
     return recs.length > 0 ? recs[recs.length - 1] : null
   }
+
+  const formatTimeStr = (r) => r.time_str || r.timeStr || ''
 
   return (
     <div className="pb-40">
@@ -96,7 +107,7 @@ export default function PunchClock({ staffList }) {
                 </div>
                 {last && (
                   <p className="text-xs text-slate-500 mt-0.5">
-                    {last.type === 'start' ? '開始' : '完了'} {last.timeStr}
+                    {last.type === 'start' ? '開始' : '完了'} {formatTimeStr(last)}
                   </p>
                 )}
               </div>
@@ -106,7 +117,6 @@ export default function PunchClock({ staffList }) {
         })}
       </div>
 
-      {/* bottom-14 = タブバーの高さ分上に配置 */}
       <div className="fixed bottom-14 left-0 right-0 bg-white border-t border-slate-200 p-3 flex gap-3 max-w-lg mx-auto z-40">
         <button
           onClick={() => punch('start')}
