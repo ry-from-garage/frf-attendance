@@ -23,7 +23,7 @@ export default function ShiftView({ staffList, onUpdate }) {
   const totalHours = (staff, day) => staff.shifts[day]?.length || 0
 
   return (
-    <div className="pb-4">
+    <div className="pb-20">
       <div className="flex gap-1.5 mb-4 overflow-x-auto">
         {DAY_LABELS.map((label, i) => (
           <button

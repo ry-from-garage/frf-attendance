@@ -111,7 +111,7 @@ export default function RecordLog() {
   }
 
   return (
-    <div className="pb-4">
+    <div className="pb-20">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-lg font-bold text-slate-800">打刻履歴</h2>
         <div className="flex gap-2">
